@@ -339,7 +339,7 @@ public class Editor {
 				}
 			}
 			if (moveCursorTo.get()) {
-				Point2D p = g.getTransform().transform(new Point(), null);
+				Point2D p = g.getTransform().transform(new Point(0, -g.getFontMetrics().getHeight() / 2), null);
 				if (Math.abs(p.getY() - moveCursorToPoint.getY()) < g.getFontMetrics().getHeight() || lineNumber == viewer.endLine) {
 					double dist = p.distance(moveCursorToPoint);
 					if (dist < closestDist) {
@@ -347,7 +347,7 @@ public class Editor {
 						closestDist = dist;
 						closestColumn = column;
 						closestLine = lineNumber;
-						closestPos = p;
+						closestPos = new Point((int) p.getX(), (int) p.getY() + (g.getFontMetrics().getHeight() / 2));
 						viewer.cursorLine = closestLine;
 						viewer.cursorColumn = closestColumn;
 					}
@@ -374,6 +374,21 @@ public class Editor {
 			}
 			if (lineNumber > viewer.endLine) {
 				break;
+			}
+		}
+		if (moveCursorTo.get()) {
+			Point2D p = g.getTransform().transform(new Point(0, -g.getFontMetrics().getHeight() / 2), null);
+			if (Math.abs(p.getY() - moveCursorToPoint.getY()) < g.getFontMetrics().getHeight() || lineNumber == viewer.endLine) {
+				double dist = p.distance(moveCursorToPoint);
+				if (dist < closestDist) {
+//					System.out.println("p:" + p);
+					closestDist = dist;
+					closestColumn = column;
+					closestLine = lineNumber;
+					closestPos = new Point((int) p.getX(), (int) p.getY() + (g.getFontMetrics().getHeight() / 2));
+					viewer.cursorLine = closestLine;
+					viewer.cursorColumn = closestColumn;
+				}
 			}
 		}
 		if (moveCursorTo.get()) {
