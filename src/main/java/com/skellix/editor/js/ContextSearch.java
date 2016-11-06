@@ -23,8 +23,8 @@ public class ContextSearch {
 		this.start = start;
 	}
 
-	public void addMatchCase(String regex, ContextSearchCallback backwardContextSearchCallback) {
-		matchCases.put(regex, backwardContextSearchCallback);
+	public void addMatchCase(String regex, ContextSearchCallback contextSearchCallback) {
+		matchCases.put(regex, contextSearchCallback);
 	}
 	
 	public void runToStartOfDocument() {
@@ -89,6 +89,39 @@ public class ContextSearch {
 		}
 		section.end = index.get() - 1;
 		compareCasesWithSection(section);
+	}
+	
+	public void matchUntilEndOfContext() {
+		matchUntilEndOfContext(new AtomicInteger(start));
+	}
+	
+	public void matchUntilEndOfContext(AtomicInteger index) {
+		ContextSection section = new ContextSection();
+		section.start = index.get();
+		for (; index.get() < buffer.limit() ; index.getAndIncrement()) {
+			buffer.position(index.get());
+			char c = (char) buffer.get();
+			if (c == '(' || c == '{' || c == '[') {
+				section.end = index.get() - 1;
+				if (section.start < buffer.limit() && section.end < buffer.limit()) {
+					compareCasesWithSection(section);
+				}
+				index.getAndIncrement();
+				matchUntilEndOfContext(index);
+				index.getAndIncrement();
+				section.start = index.get() + 1;
+			}
+			if (c == ')' || c == '}' || c == ']') {
+//				section.start = index.get() + 1;
+//				compareCasesWithSection(section);
+//				section.end = index.get() - 1;
+				break;
+			}
+		}
+		section.end = index.get() - 1;
+		if (section.start < buffer.limit() && section.end < buffer.limit()) {
+			compareCasesWithSection(section);
+		}
 	}
 	
 	private void forewardsIgnoreBlock(AtomicInteger index) {
@@ -230,57 +263,59 @@ public class ContextSearch {
 			String firstPart = chainNext.substring(0, chainNext.indexOf('.'));
 			System.out.print("");
 		} else {
-			for (Field field : clazz.getDeclaredFields()) {
-				String name = field.getName();
-				if (name.startsWith(chainNext)) {
-					contextSearchCallback.onMatchFound(name, "");
-				}
-			}
-			for (Field field : clazz.getFields()) {
-				String name = field.getName();
-				if (name.startsWith(chainNext)) {
-					contextSearchCallback.onMatchFound(name, "");
-				}
-			}
-			for (Method method : clazz.getDeclaredMethods()) {
-				Matcher matcher = Pattern.compile("^[^\\s]+\\s+([^\\s]+)\\s+[^\\s]+\\.([^\\s]+)(\\([^\\s]+).*$").matcher(method.toGenericString());
-				if (matcher.find()) {
-					String returnType = matcher.group(1);
-					String name = matcher.group(2);
-					String params = matcher.group(3);
-					StringBuilder jsParam = new StringBuilder();
-					for (Parameter parameter : method.getParameters()) {
-						jsParam.append(parameter.getName());
-						jsParam.append(',');
-					}
-					if (jsParam.length() > 0) {
-						jsParam.setLength(jsParam.length() - 1);
-					}
+			for (; clazz != null ; clazz = clazz.getSuperclass()) {
+				for (Field field : clazz.getDeclaredFields()) {
+					String name = field.getName();
 					if (name.startsWith(chainNext)) {
-						contextSearchCallback.onMatchFound(name + "(" + jsParam.toString() + ")", params + " " + returnType);
+						contextSearchCallback.onMatchFound(name, "");
 					}
 				}
-			}
-			for (Method method : clazz.getMethods()) {
-				Matcher matcher = Pattern.compile("^[^\\s]+\\s+([^\\s]+)\\s+[^\\s]+\\.([^\\s]+)(\\([^\\s]+).*$").matcher(method.toGenericString());
-				if (matcher.find()) {
-					String returnType = matcher.group(1);
-					String name = matcher.group(2);
-					String params = matcher.group(3);
-					StringBuilder jsParam = new StringBuilder();
-					for (Parameter parameter : method.getParameters()) {
-						jsParam.append(parameter.getName());
-						jsParam.append(',');
-					}
-					if (jsParam.length() > 0) {
-						jsParam.setLength(jsParam.length() - 1);
-					}
+				for (Field field : clazz.getFields()) {
+					String name = field.getName();
 					if (name.startsWith(chainNext)) {
-						contextSearchCallback.onMatchFound(name + "(" + jsParam.toString() + ")", params + " " + returnType);
+						contextSearchCallback.onMatchFound(name, "");
 					}
 				}
+				for (Method method : clazz.getDeclaredMethods()) {
+					Matcher matcher = Pattern.compile("^[^\\s]+\\s+([^\\s]+)\\s+[^\\s]+\\.([^\\s]+)(\\([^\\s]+).*$").matcher(method.toGenericString());
+					if (matcher.find()) {
+						String returnType = matcher.group(1);
+						String name = matcher.group(2);
+						String params = matcher.group(3);
+						StringBuilder jsParam = new StringBuilder();
+						for (Parameter parameter : method.getParameters()) {
+							jsParam.append(parameter.getName());
+							jsParam.append(',');
+						}
+						if (jsParam.length() > 0) {
+							jsParam.setLength(jsParam.length() - 1);
+						}
+						if (name.startsWith(chainNext)) {
+							contextSearchCallback.onMatchFound(name + "(" + jsParam.toString() + ")", params + " " + returnType);
+						}
+					}
+				}
+				for (Method method : clazz.getMethods()) {
+					Matcher matcher = Pattern.compile("^[^\\s]+\\s+([^\\s]+)\\s+[^\\s]+\\.([^\\s]+)(\\([^\\s]+).*$").matcher(method.toGenericString());
+					if (matcher.find()) {
+						String returnType = matcher.group(1);
+						String name = matcher.group(2);
+						String params = matcher.group(3);
+						StringBuilder jsParam = new StringBuilder();
+						for (Parameter parameter : method.getParameters()) {
+							jsParam.append(parameter.getName());
+							jsParam.append(',');
+						}
+						if (jsParam.length() > 0) {
+							jsParam.setLength(jsParam.length() - 1);
+						}
+						if (name.startsWith(chainNext)) {
+							contextSearchCallback.onMatchFound(name + "(" + jsParam.toString() + ")", params + " " + returnType);
+						}
+					}
+				}
+				System.out.print("");
 			}
-			System.out.print("");
 		}
 	}
 

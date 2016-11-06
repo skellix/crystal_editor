@@ -107,7 +107,7 @@ public class AutoSuggest {
 															
 															@Override
 															public void onMatchFound(String text, String more) {
-																System.out.printf("auto: %s | %s%n", text, more);
+//																System.out.printf("auto: %s | %s%n", text, more);
 																out.add(new Suggestion(text, more));
 															}
 														});
@@ -168,6 +168,7 @@ public class AutoSuggest {
 
 	public static ArrayList<Suggestion> getOptionsForCompletingJavaClass(ByteBuffer buffer, final int offset) {
 
+		Object o = System.getProperties();
 		File JAVA_HOME = new File(System.getenv("JAVA_HOME"));
 		ArrayList<Suggestion> out = new ArrayList<Suggestion>();
 		
@@ -175,34 +176,29 @@ public class AutoSuggest {
 		
 		final String stringBeforeCursor = getString(buffer, start, offset);
 		
-//		Editor.addOnSelect(new Runnable() {
-//			@Override
-//			public void run() {
-//				ByteArrayOutputStream out = new ByteArrayOutputStream();
-//				buffer.rewind();
-//				byte[] data = new byte[start];
-//				buffer.get(data);
-//				try {
-//					out.write(data);
-//					int length = offset - buffer.position();
-//					buffer.get(new byte[length]);
-//					length = buffer.limit() - buffer.position();
-//					data = new byte[length];
-//					buffer.get(data);
-//					out.write(data);
-//					Editor.editor.viewer.cursorColumn -= stringBeforeCursor.length();
-//					Editor.editor.buffer = ByteBuffer.wrap(out.toByteArray());
-//					Editor.editor.insertStringAtCursorAndIncrementCursor(Editor.editor.suggestions.get(Editor.editor.viewer.sugestionsCursor).text);
-//					Editor.editor.contentPane.revalidate();
-//					Editor.editor.contentPane.repaint();
-//				} catch (IOException e) {
-//					e.printStackTrace();
-//				}
-////				Editor.editor.insertStringAtCursorAndIncrementCursor(Editor.editor.suggestions.get(Editor.editor.viewer.sugestionsCursor).text);
-//			}
-//		});
-		
 		String[] parts = stringBeforeCursor.split("\\.");
+		
+		for (String str : System.getProperty("java.class.path").split(File.pathSeparator)) {
+			if (str.endsWith(".jar")) {
+				File jar = new File(str);
+				try {
+					JarFile jarFile = new JarFile(jar);
+					Enumeration<JarEntry> entries = jarFile.entries();
+					while (entries.hasMoreElements()) {
+						JarEntry entry = entries.nextElement();
+						String name = entry.getName();
+						if (!name.endsWith("/")) {
+							name = name.replaceAll("/", ".").replaceAll("\\.class$", "");
+							if (name.replaceAll("[^\\.]+\\.", "").startsWith(stringBeforeCursor)) {
+								out.add(new Suggestion(name));
+							}
+						}
+					}
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			}
+		}
 		
 		for (File jar : recursiveFindJar(JAVA_HOME)) {
 //			System.out.println(jar.getAbsolutePath());
@@ -215,25 +211,7 @@ public class AutoSuggest {
 					if (!name.endsWith("/")) {
 						name = name.replaceAll("/", ".").replaceAll("\\.class$", "");
 						if (name.replaceAll("[^\\.]+\\.", "").startsWith(stringBeforeCursor)) {
-							String[] nameParts = name.split("\\.");
-							boolean pass = true;
-							if (parts.length > 0 && nameParts.length > 0) {
-								for (int i = 2 ; i > 0 ; i --) {
-									//String part = parts[i];
-									if (parts.length > 2 && nameParts.length > 2 && !parts[parts.length - i].equals(nameParts[nameParts.length - i])) {
-										pass = false;
-										break;
-									}
-								}
-								if (parts.length > 1 && nameParts.length > 1 && pass && parts[parts.length - 1].startsWith(nameParts[nameParts.length - 1])) {
-									if (jar.getAbsolutePath().endsWith("rt.jar") && name.replaceAll("[^\\.]+\\.", "").startsWith(stringBeforeCursor)) {
-										out.add(new Suggestion(name));
-										System.out.print(name + "\n");
-									}
-				//					System.out.print(name + "\n");
-									System.out.print("");
-								}
-							}
+							out.add(new Suggestion(name));
 						}
 					}
 				}
@@ -257,7 +235,7 @@ public class AutoSuggest {
 		return out;
 	}
 
-	private static String getString(ByteBuffer buffer, int start, int end) {
+	public static String getString(ByteBuffer buffer, int start, int end) {
 		int length = (end - start) + 1;
 		buffer.position(start);
 		byte[] data = new byte[length];
@@ -276,13 +254,13 @@ public class AutoSuggest {
 		return hoverStr;
 	}
 
-	private static int getStartOfStringBeforeCursor(ByteBuffer buffer, int offset) {
+	public static int getStartOfStringBeforeCursor(ByteBuffer buffer, int offset) {
 		int end = offset;
 		int start = end;
 		for (; start >= 0 ; start --) {
 			buffer.position(start);
 			char c = (char) buffer.get();
-			if (!(Character.isJavaIdentifierPart(c) || c == '.')) {
+			if (!Character.isJavaIdentifierPart(c) || c == '.') {
 				start ++;
 				break;
 			}

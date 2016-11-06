@@ -16,6 +16,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -31,7 +32,10 @@ import java.util.Scanner;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.swing.JComponent;
+import javax.swing.JDialog;
+import javax.swing.JFileChooser;
 import javax.swing.JFrame;
+import javax.swing.JOptionPane;
 
 public class Editor {
 
@@ -43,8 +47,10 @@ public class Editor {
 	
 	HashMap<File, ByteBuffer> buffers = new HashMap<File, ByteBuffer>();
 	HashMap<File, AtomicBoolean> modified = new HashMap<File, AtomicBoolean>();
+	HashMap<File, Viewer> viewers = new HashMap<File, Viewer>();
 	
 	File currentBuffer = new File("new01.js");
+	public Viewer viewer = new Viewer();
 	ByteBuffer buffer = ByteBuffer.allocate(0);
 	{
 		if (cacheFile.exists()) {
@@ -76,16 +82,14 @@ public class Editor {
 				buffer = buffers.get(currentBuffer);
 			} else {
 				buffers.put(currentBuffer, buffer);
+				viewers.put(currentBuffer, viewer);
 			}
 		} else {
-//			buffers.put(currentBuffer, buffer);
+			buffers.put(currentBuffer, buffer);
+			viewers.put(currentBuffer, viewer);
 		}
 	}
-	public Viewer viewer = new Viewer();
-	{
-		viewer.cursorLine = 6;
-		viewer.cursorColumn = 4;
-	}
+	
 	JFrame frame = new JFrame("Crystal JS Editor");
 	Font font = new Font(Font.MONOSPACED, Font.PLAIN, 12);
 	
@@ -140,7 +144,9 @@ public class Editor {
 				}
 				try (PrintWriter writer = new PrintWriter(new FileWriter(cacheFile))) {
 					for (File key : buffers.keySet()) {
-						writer.println(key.getAbsolutePath());
+						if (key.exists() || (key = fileNotSavedDialog(key))  != null) {
+							writer.println(key.getAbsolutePath());
+						}
 					}
 					writer.flush();
 				} catch (FileNotFoundException e1) {
@@ -186,38 +192,6 @@ public class Editor {
 					g.setTransform(origin);
 				} else {
 					moveCursorTo(arg0.getPoint());
-//					int marginSize = (int) g.getFontMetrics().getStringBounds(Integer.toString(viewer.endLine), g).getWidth() + 2;
-//					int y = (int) (viewer.startLine + ((arg0.getY() - (g.getFontMetrics().getHeight() / 2.0)) / g.getFontMetrics().getHeight()) - 1);
-//					if (y > viewer.endLine) {
-//						y = viewer.endLine;
-//					}
-//					if (y < viewer.startLine) {
-//						y = viewer.startLine;
-//					}
-//					AffineTransform t = new AffineTransform();
-//					t.translate(marginSize, arg0.getY());
-//					int x = (arg0.getX() - marginSize) / g.getFontMetrics().charWidth(' ');
-//					int length = getLineLength(y);
-//					int start = getOffset(y, 0);
-//					int x0 = 0;
-//					double minDist = Double.MAX_VALUE;
-//					int minX = 0;
-//					for (int i = start ; i < start + length ; i ++) {
-//						buffer.position(i);
-//						char c = (char) buffer.get();
-//						x0 ++;
-//						if (c == '\t') {
-//							t.translate(g.getFontMetrics().charWidth(' ') * 4, 0);
-//						} else {
-//							t.translate(g.getFontMetrics().charWidth(c), 0);
-//						}
-//						Point2D p = t.transform(new Point(0, 0), null);
-//						double dist = p.distance(new Point(arg0.getX(), arg0.getY()));
-//						if (dist < minDist) {
-//							minDist = dist;
-//							minX = x0;
-//						}
-//					}
 					viewer.cursorLine = getNumLines() - 1;
 					viewer.cursorColumn = getLineLength(viewer.cursorLine) - 1;
 				}
@@ -236,6 +210,23 @@ public class Editor {
 		});
 	}
 	
+	public ArrayList<Runnable> onSelect = new ArrayList<Runnable>();
+
+	public void addOnSelect(Runnable runnable) {
+		onSelect.add(runnable);
+	}
+	
+	protected File fileNotSavedDialog(File file) {
+		int option = JOptionPane.showConfirmDialog(frame,
+				String.format("The file %s has not been saved do you want to save it now?", file.getAbsolutePath()),
+				"Unsaved Changes", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+		if (option == JOptionPane.YES_OPTION) {
+			return saveBuffer(file, buffer);
+		} else {
+			return null;
+		}
+	}
+
 	public Editor() {
 		frame.setVisible(true);
 	}
@@ -349,7 +340,7 @@ public class Editor {
 			}
 			if (moveCursorTo.get()) {
 				Point2D p = g.getTransform().transform(new Point(), null);
-				if (Math.abs(p.getY() - moveCursorToPoint.getY()) < g.getFontMetrics().getHeight()) {
+				if (Math.abs(p.getY() - moveCursorToPoint.getY()) < g.getFontMetrics().getHeight() || lineNumber == viewer.endLine) {
 					double dist = p.distance(moveCursorToPoint);
 					if (dist < closestDist) {
 //						System.out.println("p:" + p);
@@ -410,6 +401,10 @@ public class Editor {
 		lastCursorPos = g.getTransform().transform(new Point(), null);
 //		showSuggestions(g);
 	}
+	
+	public static Color COLOR_SUGGESTION_BG = new Color(211, 54, 130);//Color.MAGENTA
+	public static Color COLOR_SUGGESTION_FG = new Color(0, 43, 54);//Color.BLACK
+	public static Color COLOR_SUGGESTION_CURSOR = new Color(38, 139, 210);//Color.CYAN
 
 	protected void showSuggestions(Graphics2D g) {
 		AffineTransform origin = g.getTransform();
@@ -435,21 +430,21 @@ public class Editor {
 			//int maxSuggestionLength = maxString.length()
 			int width = (int) g.getFontMetrics().getStringBounds(maxString.text + ' ' + maxString.more, g).getWidth() + 2;
 			int height = ((viewer.sugestionsPageEnd - viewer.sugestionsPageStart) + 1) * g.getFontMetrics().getHeight() + g.getFontMetrics().getMaxDescent();
-			g.setColor(Color.MAGENTA);
+			g.setColor(COLOR_SUGGESTION_BG);
 			g.fillRect(0, 0, width, height);
 			
 			g.translate(1, 0);
-			g.setColor(Color.BLACK);
+			g.setColor(COLOR_SUGGESTION_FG);
 			int i = 0;
 			for (Suggestion suggestion : suggestions) {
 				if (i >= viewer.sugestionsPageStart && i <= viewer.sugestionsPageEnd) {
 					g.translate(0, g.getFontMetrics().getHeight());
-					g.setColor(Color.BLACK);
+					g.setColor(COLOR_SUGGESTION_FG);
 					g.drawString(suggestion.text, 0, 0);
 					g.setColor(Color.WHITE);
 					g.drawString(suggestion.more, g.getFontMetrics().stringWidth(suggestion.text), 0);
 					if (i == viewer.sugestionsCursor) {
-						g.setXORMode(Color.CYAN);
+						g.setXORMode(COLOR_SUGGESTION_CURSOR);
 						int selectHeight = g.getFontMetrics().getHeight() - g.getFontMetrics().getMaxDescent();
 						g.fillRect(-1, -selectHeight, width, selectHeight + g.getFontMetrics().getMaxDescent());
 						g.setPaintMode();
@@ -469,6 +464,7 @@ public class Editor {
 	public void showSuggestions(ArrayList<Suggestion> suggestions) {
 		this.suggestions = suggestions;
 		viewer.sugestionsPageStart = 0;
+		viewer.sugestionsCursor = 0;
 		showSuggestions.set(true);
 	}
 
@@ -638,17 +634,36 @@ public class Editor {
 		buffer = ByteBuffer.wrap(out.toByteArray());
 		modified.put(currentBuffer, new AtomicBoolean(true));
 	}
-	
-	public static Editor editor; { editor = this; }
-	
-	public static ArrayList<Runnable> onSelect = null;
-	
-	{
-		onSelect = new ArrayList<Runnable>();
-	}
 
-	public static void addOnSelect(Runnable runnable) {
-		onSelect.add(runnable);
+	public File saveBuffer(File file, ByteBuffer buffer) {
+		if (!file.exists()) {
+			JFileChooser chooser = new JFileChooser(new File("."));
+			if (chooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
+				buffers.remove(file);
+				file = chooser.getSelectedFile();
+				buffers.put(file, buffer);
+				try {
+					file.createNewFile();
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			} else {
+				return null;
+			}
+		}
+		try (FileOutputStream out = new FileOutputStream(file)) {
+			WritableByteChannel ch = Channels.newChannel(out);
+			buffer.rewind();
+			ch.write(buffer);
+			out.flush();
+			ch.close();
+			modified.put(file, new AtomicBoolean(false));
+		} catch (FileNotFoundException e) {
+			e.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		return file;
 	}
 
 }

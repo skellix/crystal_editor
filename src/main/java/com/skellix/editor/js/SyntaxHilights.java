@@ -9,9 +9,10 @@ import java.util.regex.Pattern;
 
 public class SyntaxHilights {
 	
-	public static Color COLOR_KEYWORD = Color.MAGENTA;
-	public static Color COLOR_CONSTANT = Color.RED;
-	public static Color COLOR_COMMENT = Color.BLUE;
+	public static Color COLOR_KEYWORD = new Color(108, 113, 196);//Color.MAGENTA;
+	public static Color COLOR_CONSTANT = new Color(220, 50, 47);//Color.RED;
+	public static Color COLOR_VARIABLE = new Color(181, 137, 0);//Color.CYAN
+	public static Color COLOR_COMMENT = new Color(38, 139, 210);//Color.BLUE;
 
 	public static ArrayList<SyntaxHilight> getHilights(ByteBuffer buffer) {
 		ArrayList<SyntaxHilight> hilights = new ArrayList<SyntaxHilight>();
@@ -35,6 +36,34 @@ public class SyntaxHilights {
 				hilights.add(new SyntaxHilight(matcher.start(), COLOR_CONSTANT));
 				hilights.add(new SyntaxHilight(matcher.end(), Color.BLACK));
 			}
+		}
+		{
+			ContextSearch contextSearch0 = new ContextSearch(buffer, 0);
+			contextSearch0.addMatchCase(RegexCommon.regexBlankBefore + "var\\s+(" + RegexCommon.isJavaIdentifierPart + "+)" + RegexCommon.regexBlankAfter, new ContextSearchCallback() {
+				
+				@Override
+				public void onMatchFound(ByteBuffer buffer, int start, int end) {
+					String match = AutoSuggest.getString(buffer, start, end - 1);
+					start = start + match.split("(?<=\\s)")[0].length();
+					match = AutoSuggest.getString(buffer, start, end - 1);
+//					end = start + (match.trim().length() - 1);
+					match = AutoSuggest.getString(buffer, start, start + (match.trim().length() - 1));
+					hilights.add(new SyntaxHilight(start, COLOR_VARIABLE));
+					hilights.add(new SyntaxHilight(end, Color.BLACK));
+					ContextSearch contextSearch = new ContextSearch(buffer, end);
+					contextSearch.addMatchCase(RegexCommon.regexBlankBefore + match + "(?=\\.|" + RegexCommon.regexBlankAfter + ")", new ContextSearchCallback() {
+						
+						@Override
+						public void onMatchFound(ByteBuffer buffer, int start, int end) {
+							String match = AutoSuggest.getString(buffer, start, end - 1);
+							hilights.add(new SyntaxHilight(start, COLOR_VARIABLE));
+							hilights.add(new SyntaxHilight(end, Color.BLACK));
+						}
+					});
+					contextSearch.matchUntilEndOfContext();
+				}
+			});
+			contextSearch0.matchUntilEndOfContext();
 		}
 		{
 			Matcher matcher = Pattern.compile(RegexCommon.regexBlankBefore + "//[^\n]*").matcher(new BufferCharSequence(buffer));

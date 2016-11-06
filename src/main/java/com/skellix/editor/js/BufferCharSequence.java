@@ -26,4 +26,8 @@ public class BufferCharSequence implements CharSequence {
 		return new BufferCharSequence(buffer.get(new byte[arg1 - arg0]));
 	}
 
+	@Override
+	public String toString() {
+		return new String(buffer.array()); 
+	}
 }

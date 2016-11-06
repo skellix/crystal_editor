@@ -1,7 +1,6 @@
 package com.skellix.editor.js;
 
 import java.awt.event.ActionEvent;
-import java.awt.event.KeyEvent;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -15,7 +14,6 @@ import java.nio.channels.WritableByteChannel;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.BinaryOperator;
 
 import javax.script.ScriptEngine;
 import javax.script.ScriptEngineManager;
@@ -23,7 +21,6 @@ import javax.script.ScriptException;
 import javax.swing.AbstractAction;
 import javax.swing.ActionMap;
 import javax.swing.JFileChooser;
-import javax.swing.KeyStroke;
 
 public class DefaultActionMap extends ActionMap {
 
@@ -269,21 +266,52 @@ public class DefaultActionMap extends ActionMap {
 			
 			@Override
 			public void actionPerformed(ActionEvent arg0) {
-				Editor.onSelect.clear();
-				int offset = main.getOffset(main.viewer.cursorLine, main.viewer.cursorColumn);
-				ArrayList<Suggestion> suggestions = new ArrayList<Suggestion>(); 
-				ArrayList<Suggestion> l1 = AutoSuggest.getOptionsForCompletingFieldOrMethod(main.buffer, offset - 1);
+				main.onSelect.clear();
+				int offset = main.getOffset(main.viewer.cursorLine, main.viewer.cursorColumn) - 1;
+				ArrayList<Suggestion> suggestions = new ArrayList<Suggestion>();
+				ArrayList<Suggestion> l1 = AutoSuggest.getOptionsForCompletingFieldOrMethod(main.buffer, offset);
 				l1.sort((a,b) -> a.text.compareTo(b.text));
 				l1.sort((a,b) -> Boolean.compare(a.text.indexOf('(') >= 0, b.text.indexOf('(') >= 0));
-				LinkedHashSet<Suggestion> lhs = new LinkedHashSet<Suggestion>();
-				lhs.addAll(l1);
-				l1.clear();
-				l1.addAll(lhs);
 				suggestions.addAll(l1);
-				suggestions.addAll(AutoSuggest.getOptionsForCompletingVarName(main.buffer, offset - 1));
-				suggestions.addAll(AutoSuggest.getOptionsForCompletingImport(main.buffer, offset - 1));
-				suggestions.addAll(AutoSuggest.getOptionsForCompletingJavaClass(main.buffer, offset - 1));
-				main.showSuggestions(suggestions);
+				suggestions.addAll(AutoSuggest.getOptionsForCompletingVarName(main.buffer, offset));
+				suggestions.addAll(AutoSuggest.getOptionsForCompletingImport(main.buffer, offset));
+				suggestions.addAll(AutoSuggest.getOptionsForCompletingJavaClass(main.buffer, offset));
+				ArrayList<Suggestion> suggestionsOut = new ArrayList<Suggestion>();
+				LinkedHashSet<String> lhs = new LinkedHashSet<String>();
+				for (Suggestion suggestion : suggestions) {
+					String str = suggestion.text + suggestion.more;
+					if (!lhs.contains(str)) {
+						lhs.add(str);
+						suggestionsOut.add(suggestion);
+					}
+				}
+				main.addOnSelect(new Runnable() {
+					@Override
+					public void run() {
+						int start = AutoSuggest.getStartOfStringBeforeCursor(main.buffer, offset);
+						try {
+							ByteArrayOutputStream out = new ByteArrayOutputStream();
+							byte[] data = new byte[start];
+							main.buffer.rewind();
+							main.buffer.get(data);
+							out.write(data);
+							String replacement = main.suggestions.get(main.viewer.sugestionsCursor).text;
+							out.write(replacement.getBytes());
+							int diff = (offset - start) + 1;
+							main.buffer.get(new byte[diff]);
+							int length = main.buffer.remaining();
+							data = new byte[length];
+							main.buffer.get(data);
+							out.write(data);
+							main.buffer = ByteBuffer.wrap(out.toByteArray());
+							main.viewer.cursorColumn -= diff;
+							main.viewer.cursorColumn += replacement.length();
+						} catch (IOException e) {
+							e.printStackTrace();
+						}
+					}
+				});
+				main.showSuggestions(suggestionsOut);
 				main.contentPane.revalidate();
 				main.contentPane.repaint();
 			}
@@ -330,31 +358,9 @@ public class DefaultActionMap extends ActionMap {
 			
 			@Override
 			public void actionPerformed(ActionEvent arg0) {
-				File file = main.currentBuffer;
-				if (!file.exists()) {
-					JFileChooser chooser = new JFileChooser();
-					if (chooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
-						main.buffers.remove(file);
-						main.currentBuffer = file = chooser.getSelectedFile();
-						main.buffers.put(main.currentBuffer, main.buffer);
-						try {
-							file.createNewFile();
-						} catch (IOException e) {
-							e.printStackTrace();
-						}
-					}
-				}
-				try (FileOutputStream out = new FileOutputStream(file)) {
-					WritableByteChannel ch = Channels.newChannel(out);
-					main.buffer.rewind();
-					ch.write(main.buffer);
-					out.flush();
-					ch.close();
-					main.modified.put(main.currentBuffer, new AtomicBoolean(true));
-				} catch (FileNotFoundException e) {
-					e.printStackTrace();
-				} catch (IOException e) {
-					e.printStackTrace();
+				File out = main.saveBuffer(main.currentBuffer, main.buffer);
+				if (out != null) {
+					main.currentBuffer = out;
 				}
 				main.contentPane.revalidate();
 				main.contentPane.repaint();
