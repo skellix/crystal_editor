@@ -8,6 +8,7 @@ import java.awt.RenderingHints;
 import java.awt.Toolkit;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
+import java.awt.event.MouseMotionListener;
 import java.awt.event.WindowEvent;
 import java.awt.event.WindowListener;
 import java.awt.geom.AffineTransform;
@@ -165,6 +166,31 @@ public class Editor {
 		contentPane.setActionMap(new DefaultActionMap(this));
 		contentPane.setInputMap(JComponent.WHEN_FOCUSED, new DefaultInputMap());
 		contentPane.setFocusTraversalKeysEnabled(false);
+		contentPane.addMouseMotionListener(new MouseMotionListener() {
+			
+			@Override
+			public void mouseMoved(MouseEvent e) {
+				// TODO Auto-generated method stub
+				
+			}
+			
+			@Override
+			public void mouseDragged(MouseEvent arg0) {
+				Graphics2D g = (Graphics2D) contentPane.getGraphics();
+				if (lastCursorPos != null && arg0.getPoint().distance(lastCursorPos) > g.getFontMetrics().charWidth(' ')) {
+					if (arg0.getY() > g.getFontMetrics().getHeight()) {
+						moveSelectionTo(arg0.getPoint());
+						viewer.selectionLine = getNumLines() - 1;
+						viewer.selectionColumn = getLineLength(viewer.selectionLine) - 1;
+						moveCursorTo(lastCursorPos);
+						viewer.cursorLine = getNumLines() - 1;
+						viewer.cursorColumn = getLineLength(viewer.cursorLine) - 1;
+					}
+				}
+				contentPane.revalidate();
+				contentPane.repaint();
+			}
+		});
 		contentPane.addMouseListener(new MouseListener() {
 			
 			@Override
@@ -191,6 +217,7 @@ public class Editor {
 					}
 					g.setTransform(origin);
 				} else {
+					lastSelectionPos = null;
 					moveCursorTo(arg0.getPoint());
 					viewer.cursorLine = getNumLines() - 1;
 					viewer.cursorColumn = getLineLength(viewer.cursorLine) - 1;
@@ -216,6 +243,14 @@ public class Editor {
 		onSelect.add(runnable);
 	}
 	
+	AtomicBoolean moveSelectionTo = new AtomicBoolean(false);
+	Point2D moveSelectionToPoint;
+	
+	protected void moveSelectionTo(Point point) {
+		moveSelectionTo.set(true);
+		this.moveSelectionToPoint = point;
+	}
+
 	protected File fileNotSavedDialog(File file) {
 		int option = JOptionPane.showConfirmDialog(frame,
 				String.format("The file %s has not been saved do you want to save it now?", file.getAbsolutePath()),
@@ -302,6 +337,9 @@ public class Editor {
 		g.setColor(Color.LIGHT_GRAY);
 		g.drawRect(0, 0, width, height);
 		
+		int offset0 = getOffset(viewer.selectionLine, viewer.selectionColumn);
+		int offset1 = getOffset(viewer.cursorLine, viewer.cursorColumn);
+		
 		g.translate(0, g.getFontMetrics().getHeight());
 		g.setColor(Color.BLACK);
 		ArrayList<SyntaxHilight> hilights = SyntaxHilights.getHilights(buffer);
@@ -325,7 +363,10 @@ public class Editor {
 		}
 		double closestDist = Double.MAX_VALUE;
 		int closestLine = 0, closestColumn = 0;
-		Point2D closestPos = new Point();
+		Point2D closestCursorPos = new Point();
+		double closestSelectionDist = Double.MAX_VALUE;
+		int closestSelectionLine = 0, closestSelectionColumn = 0;
+		Point2D closestSelectionPos = new Point();
 		
 		AffineTransform lastLine = g.getTransform();
 		int column = 0;
@@ -338,6 +379,21 @@ public class Editor {
 					next = null;
 				}
 			}
+			if (moveSelectionTo.get()) {
+				Point2D p = g.getTransform().transform(new Point(0, -g.getFontMetrics().getHeight() / 2), null);
+				if (Math.abs(p.getY() - moveSelectionToPoint.getY()) < g.getFontMetrics().getHeight() || lineNumber == viewer.endLine) {
+					double dist = p.distance(moveSelectionToPoint);
+					if (dist < closestSelectionDist) {
+//						System.out.println("p:" + p);
+						closestSelectionDist = dist;
+						closestSelectionColumn = column;
+						closestSelectionLine = lineNumber;
+						closestSelectionPos = new Point((int) p.getX(), (int) p.getY() + (g.getFontMetrics().getHeight() / 2));
+						viewer.selectionLine = closestSelectionLine;
+						viewer.selectionColumn = closestSelectionColumn;
+					}
+				}
+			}
 			if (moveCursorTo.get()) {
 				Point2D p = g.getTransform().transform(new Point(0, -g.getFontMetrics().getHeight() / 2), null);
 				if (Math.abs(p.getY() - moveCursorToPoint.getY()) < g.getFontMetrics().getHeight() || lineNumber == viewer.endLine) {
@@ -347,16 +403,23 @@ public class Editor {
 						closestDist = dist;
 						closestColumn = column;
 						closestLine = lineNumber;
-						closestPos = new Point((int) p.getX(), (int) p.getY() + (g.getFontMetrics().getHeight() / 2));
+						closestCursorPos = new Point((int) p.getX(), (int) p.getY() + (g.getFontMetrics().getHeight() / 2));
 						viewer.cursorLine = closestLine;
 						viewer.cursorColumn = closestColumn;
 					}
 				}
 			}
 			char c = (char) cb.get();
+			if (!moveSelectionTo.get()) {
+				if (lineNumber == closestSelectionLine && column == closestSelectionColumn) {
+					drawCursor(g);
+					lastSelectionPos = g.getTransform().transform(new Point(), null);
+				}
+			}
 			if (!moveCursorTo.get()) {
 				if (lineNumber == viewer.cursorLine && column == viewer.cursorColumn) {
 					drawCursor(g);
+					lastCursorPos = g.getTransform().transform(new Point(), null);
 				}
 			}
 			column ++;
@@ -376,6 +439,21 @@ public class Editor {
 				break;
 			}
 		}
+		if (moveSelectionTo.get()) {
+			Point2D p = g.getTransform().transform(new Point(0, -g.getFontMetrics().getHeight() / 2), null);
+			if (Math.abs(p.getY() - moveSelectionToPoint.getY()) < g.getFontMetrics().getHeight() || lineNumber == viewer.endLine) {
+				double dist = p.distance(moveSelectionToPoint);
+				if (dist < closestSelectionDist) {
+//					System.out.println("p:" + p);
+					closestSelectionDist = dist;
+					closestSelectionColumn = column;
+					closestSelectionLine = lineNumber;
+					closestSelectionPos = new Point((int) p.getX(), (int) p.getY() + (g.getFontMetrics().getHeight() / 2));
+					viewer.selectionLine = closestSelectionLine;
+					viewer.selectionColumn = closestSelectionColumn;
+				}
+			}
+		}
 		if (moveCursorTo.get()) {
 			Point2D p = g.getTransform().transform(new Point(0, -g.getFontMetrics().getHeight() / 2), null);
 			if (Math.abs(p.getY() - moveCursorToPoint.getY()) < g.getFontMetrics().getHeight() || lineNumber == viewer.endLine) {
@@ -385,20 +463,82 @@ public class Editor {
 					closestDist = dist;
 					closestColumn = column;
 					closestLine = lineNumber;
-					closestPos = new Point((int) p.getX(), (int) p.getY() + (g.getFontMetrics().getHeight() / 2));
+					closestCursorPos = new Point((int) p.getX(), (int) p.getY() + (g.getFontMetrics().getHeight() / 2));
 					viewer.cursorLine = closestLine;
 					viewer.cursorColumn = closestColumn;
 				}
 			}
 		}
+		if (moveSelectionTo.get() && moveCursorTo.get()) {
+			Point2D p0 = new Point((int) closestSelectionPos.getX(), (int) (closestSelectionPos.getY() - (closestSelectionPos.getY() % g.getFontMetrics().getHeight())));
+			Point2D p1 = new Point((int) closestCursorPos.getX(), (int) (closestCursorPos.getY() - (closestCursorPos.getY() % g.getFontMetrics().getHeight())));
+			Point2D pmin = null, pmax = null;
+			boolean sameLine = false;
+			if (p0.getY() < p1.getY()) {
+				pmin = p0;
+				pmax = p1;
+			} else if (p0.getY() > p1.getY()) {
+				pmin = p1;
+				pmax = p0;
+			} else {
+				sameLine = true;
+				if (p0.getX() < p1.getX()) {
+					pmin = p0;
+					pmax = p1;
+				} else {
+					pmin = p1;
+					pmax = p0;
+				}
+			}
+			g.setColor(Color.BLACK);
+			g.setXORMode(Color.WHITE);
+			int marginOff = (int) g.getTransform().transform(new Point(-g.getFontMetrics().charWidth(' '), 0), null).getX();
+			g.setTransform(new AffineTransform());
+			if (sameLine) {
+				g.fillRect(
+						(int) pmin.getX(), (int) pmin.getY() - (g.getFontMetrics().getHeight() - g.getFontMetrics().getMaxDescent()),
+						(int) (pmax.getX() - pmin.getX()), g.getFontMetrics().getHeight()
+						);
+			} else {
+				g.fillRect(
+						(int) pmin.getX(), (int) pmin.getY() - (g.getFontMetrics().getHeight() - g.getFontMetrics().getMaxDescent()),
+						(width + marginOff) - (int) pmin.getX(), g.getFontMetrics().getHeight()
+						);
+				for (double y = pmin.getY() + g.getFontMetrics().getHeight() ; y < pmax.getY() ; y += g.getFontMetrics().getHeight()) {
+					g.fillRect(
+							marginOff, (int) y - (g.getFontMetrics().getHeight() - g.getFontMetrics().getMaxDescent()),
+							width + marginOff, g.getFontMetrics().getHeight()
+							);
+				}
+				g.fillRect(
+						marginOff, (int) pmax.getY() - (g.getFontMetrics().getHeight() - g.getFontMetrics().getMaxDescent()),
+						(int) pmax.getX() - marginOff, g.getFontMetrics().getHeight()
+						);
+			}
+			g.setPaintMode();
+		}
+		if (moveSelectionTo.get()) {
+			moveSelectionTo.set(false);
+			g.setTransform(new AffineTransform());
+			g.translate(closestSelectionPos.getX(), closestSelectionPos.getY());
+			drawSelector(g);
+			lastSelectionPos = g.getTransform().transform(new Point(), null);
+		} else {
+			if (lineNumber == viewer.selectionLine && column == viewer.selectionColumn) {
+				drawSelector(g);
+				lastSelectionPos = g.getTransform().transform(new Point(), null);
+			}
+		}
 		if (moveCursorTo.get()) {
 			moveCursorTo.set(false);
 			g.setTransform(new AffineTransform());
-			g.translate(closestPos.getX(), closestPos.getY());
+			g.translate(closestCursorPos.getX(), closestCursorPos.getY());
 			drawCursor(g);
+			lastCursorPos = g.getTransform().transform(new Point(), null);
 		} else {
 			if (lineNumber == viewer.cursorLine && column == viewer.cursorColumn) {
 				drawCursor(g);
+				lastCursorPos = g.getTransform().transform(new Point(), null);
 			}
 		}
 		showSuggestions(g);
@@ -406,6 +546,7 @@ public class Editor {
 	}
 	
 	Point2D lastCursorPos = null;
+	Point2D lastSelectionPos = null;
 
 	private void drawCursor(Graphics2D g) {
 		Color color = g.getColor();
@@ -413,7 +554,15 @@ public class Editor {
 		int cursorHeight = g.getFontMetrics().getHeight() - g.getFontMetrics().getMaxDescent();
 		g.fillRect(0, -cursorHeight, 2, cursorHeight + g.getFontMetrics().getMaxDescent());
 		g.setColor(color);
-		lastCursorPos = g.getTransform().transform(new Point(), null);
+//		showSuggestions(g);
+	}
+	
+	private void drawSelector(Graphics2D g) {
+		Color color = g.getColor();
+		g.setColor(Color.BLACK);
+		int cursorHeight = g.getFontMetrics().getHeight() - g.getFontMetrics().getMaxDescent();
+		g.fillRect(0, -cursorHeight, 2, cursorHeight + g.getFontMetrics().getMaxDescent());
+		g.setColor(color);
 //		showSuggestions(g);
 	}
 	
