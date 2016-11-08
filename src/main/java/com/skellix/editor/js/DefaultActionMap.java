@@ -1,5 +1,11 @@
 package com.skellix.editor.js;
 
+import java.awt.HeadlessException;
+import java.awt.Toolkit;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.StringSelection;
+import java.awt.datatransfer.Transferable;
+import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.event.ActionEvent;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -21,6 +27,7 @@ import javax.script.ScriptException;
 import javax.swing.AbstractAction;
 import javax.swing.ActionMap;
 import javax.swing.JFileChooser;
+import javax.swing.TransferHandler;
 
 public class DefaultActionMap extends ActionMap {
 
@@ -378,6 +385,55 @@ public class DefaultActionMap extends ActionMap {
 				} catch (ScriptException e) {
 					e.printStackTrace();
 				}
+				main.contentPane.revalidate();
+				main.contentPane.repaint();
+			}
+		});
+		put("cut", new AbstractAction() {
+			
+			@Override
+			public void actionPerformed(ActionEvent arg0) {
+				int o0 = main.getOffset(main.viewer.cursorLine, main.viewer.cursorColumn);
+				int o1 = main.getOffset(main.viewer.selectionLine, main.viewer.selectionColumn);
+				String selection = main.cutSelection();
+				Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(selection), null);
+				if (o0 < o1) {
+					main.moveCursorTo(main.lastCursorPos);
+				} else {
+					main.moveCursorTo(main.lastSelectionPos);
+				}
+				main.contentPane.revalidate();
+				main.contentPane.repaint();
+			}
+		});
+		put("copy", new AbstractAction() {
+			
+			@Override
+			public void actionPerformed(ActionEvent arg0) {
+				String selection = main.getSelection();
+				Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(selection), null);
+				main.moveSelectionTo(main.lastSelectionPos);
+				main.moveCursorTo(main.lastCursorPos);
+				main.contentPane.revalidate();
+				main.contentPane.repaint();
+			}
+		});
+		put("paste", new AbstractAction() {
+			
+			@Override
+			public void actionPerformed(ActionEvent arg0) {
+				String str = "";
+				try {
+					str = (String) Toolkit.getDefaultToolkit().getSystemClipboard().getContents(null).getTransferData(DataFlavor.stringFlavor);
+				} catch (HeadlessException e) {
+					e.printStackTrace();
+				} catch (UnsupportedFlavorException e) {
+					e.printStackTrace();
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+				
+				main.insertStringAtCursorAndIncrementCursor(str);
 				main.contentPane.revalidate();
 				main.contentPane.repaint();
 			}

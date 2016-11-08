@@ -246,9 +246,9 @@ public class Editor {
 	AtomicBoolean moveSelectionTo = new AtomicBoolean(false);
 	Point2D moveSelectionToPoint;
 	
-	protected void moveSelectionTo(Point point) {
+	protected void moveSelectionTo(Point2D pos) {
 		moveSelectionTo.set(true);
-		this.moveSelectionToPoint = point;
+		this.moveSelectionToPoint = pos;
 	}
 
 	protected File fileNotSavedDialog(File file) {
@@ -828,6 +828,49 @@ public class Editor {
 			e.printStackTrace();
 		}
 		return file;
+	}
+
+	public String getSelection() {
+		int o0 = getOffset(viewer.selectionLine, viewer.selectionColumn);
+		int o1 = getOffset(viewer.cursorLine, viewer.cursorColumn);
+		int start = Math.min(o0, o1);
+		int end = Math.max(o0, o1);
+		int length = end - start;
+		byte[] data = new byte[length];
+		buffer.position(start);
+		buffer.get(data);
+		return new String(data);
+	}
+
+	public String cutSelection() {
+		int o0 = getOffset(viewer.selectionLine, viewer.selectionColumn);
+		int o1 = getOffset(viewer.cursorLine, viewer.cursorColumn);
+		int start = Math.min(o0, o1);
+		int end = Math.max(o0, o1);
+		int length = end - start;
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		byte[] data = new byte[start];
+		buffer.rewind();
+		buffer.get(data);
+		try {
+			out.write(data);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		data = new byte[length];
+		buffer.get(data);
+		byte[] outs = data;
+		data = new byte[buffer.remaining()];
+		buffer.get(data);
+		try {
+			out.write(data);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		buffer = ByteBuffer.wrap(out.toByteArray());
+		buffers.put(currentBuffer, buffer);
+		modified.put(currentBuffer, new AtomicBoolean(true));
+		return new String(outs);
 	}
 
 }

@@ -30,6 +30,9 @@ public class DefaultInputMap extends InputMap {
 //			put(KeyStroke.getKeyStroke(c), str);
 		}
 		put(KeyStroke.getKeyStroke('\b'), "bs");
+		put(KeyStroke.getKeyStroke(KeyEvent.VK_X, KeyEvent.CTRL_DOWN_MASK), "cut");
+		put(KeyStroke.getKeyStroke(KeyEvent.VK_C, KeyEvent.CTRL_DOWN_MASK), "copy");
+		put(KeyStroke.getKeyStroke(KeyEvent.VK_V, KeyEvent.CTRL_DOWN_MASK), "paste");
 		put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, KeyEvent.CTRL_DOWN_MASK | KeyEvent.SHIFT_DOWN_MASK), "run-buffer");
 	}
 }
