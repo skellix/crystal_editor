@@ -29,6 +29,7 @@ import java.nio.channels.WritableByteChannel;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.Scanner;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -106,6 +107,10 @@ public class Editor {
 			g.setTransform(new AffineTransform());
 			drawTabbs(g, getWidth());
 			drawBufferWithLineNumbers(g, buffer, viewer, getWidth(), getHeight() - g.getFontMetrics().getHeight());
+			g.setFont(new Font(Font.MONOSPACED, Font.BOLD, 20));
+			g.setTransform(new AffineTransform());
+			g.setColor(Color.GRAY);
+			g.drawString("* X", getWidth() - g.getFontMetrics().charWidth(' ') * 4, g.getFontMetrics().getHeight() / 2);
 		}
 	};
 	
@@ -217,6 +222,8 @@ public class Editor {
 					}
 					g.setTransform(origin);
 				} else {
+					viewer.selectionColumn = 0;
+					viewer.selectionLine = -1;
 					lastSelectionPos = null;
 					moveCursorTo(arg0.getPoint());
 					viewer.cursorLine = getNumLines() - 1;
@@ -412,13 +419,13 @@ public class Editor {
 			char c = (char) cb.get();
 			if (!moveSelectionTo.get()) {
 				if (lineNumber == closestSelectionLine && column == closestSelectionColumn) {
-					drawCursor(g);
+//					drawCursor(g);
 					lastSelectionPos = g.getTransform().transform(new Point(), null);
 				}
 			}
 			if (!moveCursorTo.get()) {
 				if (lineNumber == viewer.cursorLine && column == viewer.cursorColumn) {
-					drawCursor(g);
+					if (!moveSelectionTo.get()) drawCursor(g);
 					lastCursorPos = g.getTransform().transform(new Point(), null);
 				}
 			}
@@ -520,12 +527,12 @@ public class Editor {
 		if (moveSelectionTo.get()) {
 			moveSelectionTo.set(false);
 			g.setTransform(new AffineTransform());
-			g.translate(closestSelectionPos.getX(), closestSelectionPos.getY());
-			drawSelector(g);
+//			g.translate(closestSelectionPos.getX(), closestSelectionPos.getY());
+//			drawSelector(g);
 			lastSelectionPos = g.getTransform().transform(new Point(), null);
-		} else {
+		} else if (viewer.selectionLine != -1) {
 			if (lineNumber == viewer.selectionLine && column == viewer.selectionColumn) {
-				drawSelector(g);
+//				drawSelector(g);
 				lastSelectionPos = g.getTransform().transform(new Point(), null);
 			}
 		}
@@ -533,11 +540,11 @@ public class Editor {
 			moveCursorTo.set(false);
 			g.setTransform(new AffineTransform());
 			g.translate(closestCursorPos.getX(), closestCursorPos.getY());
-			drawCursor(g);
+			if (!moveSelectionTo.get()) drawCursor(g);
 			lastCursorPos = g.getTransform().transform(new Point(), null);
 		} else {
 			if (lineNumber == viewer.cursorLine && column == viewer.cursorColumn) {
-				drawCursor(g);
+				if (!moveSelectionTo.get()) drawCursor(g);
 				lastCursorPos = g.getTransform().transform(new Point(), null);
 			}
 		}
@@ -752,53 +759,7 @@ public class Editor {
 		}
 		return count;
 	}
-
-	public void insertCharacterAtCursorAndIncrementCursor(char c) {
-		int offset = getOffset(viewer.cursorLine, viewer.cursorColumn);
-		ByteBuffer next = ByteBuffer.allocate(buffer.limit() + 1);
-		ByteArrayOutputStream out = new ByteArrayOutputStream();
-		WritableByteChannel channel = Channels.newChannel(out);
-		buffer.position(0);
-		try {
-			byte[] before = new byte[offset];
-			buffer.get(before);
-			channel.write(ByteBuffer.wrap(before));
-			channel.write(ByteBuffer.wrap(new byte[]{(byte) c}));
-			byte[] after = new byte[buffer.remaining()];
-			buffer.get(after);
-			channel.write(ByteBuffer.wrap(after));
-			channel.close();
-			viewer.cursorColumn ++;
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-		buffer = ByteBuffer.wrap(out.toByteArray());
-		modified.put(currentBuffer, new AtomicBoolean(true));
-	}
-
-	public void insertStringAtCursorAndIncrementCursor(String str) {
-		int offset = getOffset(viewer.cursorLine, viewer.cursorColumn);
-		ByteBuffer next = ByteBuffer.allocate(buffer.limit() + 1);
-		ByteArrayOutputStream out = new ByteArrayOutputStream();
-		WritableByteChannel channel = Channels.newChannel(out);
-		buffer.position(0);
-		try {
-			byte[] before = new byte[offset];
-			buffer.get(before);
-			channel.write(ByteBuffer.wrap(before));
-			channel.write(ByteBuffer.wrap(str.getBytes()));
-			byte[] after = new byte[buffer.remaining()];
-			buffer.get(after);
-			channel.write(ByteBuffer.wrap(after));
-			channel.close();
-			viewer.cursorColumn += str.length();
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-		buffer = ByteBuffer.wrap(out.toByteArray());
-		modified.put(currentBuffer, new AtomicBoolean(true));
-	}
-
+	
 	public File saveBuffer(File file, ByteBuffer buffer) {
 		if (!file.exists()) {
 			JFileChooser chooser = new JFileChooser(new File("."));
@@ -828,6 +789,219 @@ public class Editor {
 			e.printStackTrace();
 		}
 		return file;
+	}
+	
+	public LinkedList<Edit> edits = new LinkedList<Edit>();
+	public LinkedList<Edit> undoneEdits = new LinkedList<Edit>();
+	
+	public void undo() {
+		if (!edits.isEmpty()) {
+			Edit e0 = edits.pop();
+			if (e0 instanceof InsertCharacterEdit) {
+				InsertCharacterEdit edit = (InsertCharacterEdit) e0;
+				try {
+					ByteArrayOutputStream out = new ByteArrayOutputStream();
+					byte[] data = new byte[edit.offset];
+					buffer.rewind();
+					buffer.get(data);
+					out.write(data);
+					buffer.get();
+					data = new byte[buffer.remaining()];
+					buffer.get(data);
+					out.write(data);
+					buffer = ByteBuffer.wrap(out.toByteArray());
+					modified.put(currentBuffer, new AtomicBoolean(true));
+					undoneEdits.push(new DeleteCharacterEdit(edit.offset, edit.character));
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			} else if (e0 instanceof InsertStringEdit) {
+				InsertStringEdit edit = (InsertStringEdit) e0;
+				try {
+					ByteArrayOutputStream out = new ByteArrayOutputStream();
+					byte[] data = new byte[edit.offset];
+					buffer.rewind();
+					buffer.get(data);
+					out.write(data);
+					// no write for 2 lines
+					data = new byte[edit.string.getBytes().length];
+					buffer.get(data);
+					data = new byte[buffer.remaining()];
+					buffer.get(data);
+					out.write(data);
+					buffer = ByteBuffer.wrap(out.toByteArray());
+					modified.put(currentBuffer, new AtomicBoolean(true));
+					undoneEdits.push(new DeleteStringEdit(edit.offset, edit.string));
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			} else if (e0 instanceof DeleteCharacterEdit) {
+				DeleteCharacterEdit edit = (DeleteCharacterEdit) e0;
+				try {
+					ByteArrayOutputStream out = new ByteArrayOutputStream();
+					byte[] data = new byte[edit.offset];
+					buffer.rewind();
+					buffer.get(data);
+					out.write(data);
+					out.write(edit.character);
+					data = new byte[buffer.remaining()];
+					buffer.get(data);
+					out.write(data);
+					buffer = ByteBuffer.wrap(out.toByteArray());
+					modified.put(currentBuffer, new AtomicBoolean(true));
+					undoneEdits.push(new InsertCharacterEdit(edit.offset, edit.character));
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			} else if (e0 instanceof DeleteStringEdit) {
+				DeleteStringEdit edit = (DeleteStringEdit) e0;
+				try {
+					ByteArrayOutputStream out = new ByteArrayOutputStream();
+					byte[] data = new byte[edit.offset];
+					buffer.rewind();
+					buffer.get(data);
+					out.write(data);
+					out.write(edit.string.getBytes());
+					data = new byte[buffer.remaining()];
+					buffer.get(data);
+					out.write(data);
+					buffer = ByteBuffer.wrap(out.toByteArray());
+					modified.put(currentBuffer, new AtomicBoolean(true));
+					undoneEdits.push(new InsertStringEdit(edit.offset, edit.string));
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			}
+		}
+	}
+	
+	public void redo() {
+		if (!undoneEdits.isEmpty()) {
+			Edit e0 = undoneEdits.pop();
+			if (e0 instanceof InsertCharacterEdit) {
+				InsertCharacterEdit edit = (InsertCharacterEdit) e0;
+				try {
+					ByteArrayOutputStream out = new ByteArrayOutputStream();
+					byte[] data = new byte[edit.offset];
+					buffer.rewind();
+					buffer.get(data);
+					out.write(data);
+					buffer.get();
+					data = new byte[buffer.remaining()];
+					buffer.get(data);
+					out.write(data);
+					buffer = ByteBuffer.wrap(out.toByteArray());
+					modified.put(currentBuffer, new AtomicBoolean(true));
+					edits.push(new DeleteCharacterEdit(edit.offset, edit.character));
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			} else if (e0 instanceof InsertStringEdit) {
+				InsertStringEdit edit = (InsertStringEdit) e0;
+				try {
+					ByteArrayOutputStream out = new ByteArrayOutputStream();
+					byte[] data = new byte[edit.offset];
+					buffer.rewind();
+					buffer.get(data);
+					out.write(data);
+					// no write for 2 lines
+					data = new byte[edit.string.getBytes().length];
+					buffer.get(data);
+					data = new byte[buffer.remaining()];
+					buffer.get(data);
+					out.write(data);
+					buffer = ByteBuffer.wrap(out.toByteArray());
+					modified.put(currentBuffer, new AtomicBoolean(true));
+					edits.push(new DeleteStringEdit(edit.offset, edit.string));
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			} else if (e0 instanceof DeleteCharacterEdit) {
+				DeleteCharacterEdit edit = (DeleteCharacterEdit) e0;
+				try {
+					ByteArrayOutputStream out = new ByteArrayOutputStream();
+					byte[] data = new byte[edit.offset];
+					buffer.rewind();
+					buffer.get(data);
+					out.write(data);
+					out.write(edit.character);
+					data = new byte[buffer.remaining()];
+					buffer.get(data);
+					out.write(data);
+					buffer = ByteBuffer.wrap(out.toByteArray());
+					modified.put(currentBuffer, new AtomicBoolean(true));
+					edits.push(new InsertCharacterEdit(edit.offset, edit.character));
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			} else if (e0 instanceof DeleteStringEdit) {
+				DeleteStringEdit edit = (DeleteStringEdit) e0;
+				try {
+					ByteArrayOutputStream out = new ByteArrayOutputStream();
+					byte[] data = new byte[edit.offset];
+					buffer.rewind();
+					buffer.get(data);
+					out.write(data);
+					out.write(edit.string.getBytes());
+					data = new byte[buffer.remaining()];
+					buffer.get(data);
+					out.write(data);
+					buffer = ByteBuffer.wrap(out.toByteArray());
+					modified.put(currentBuffer, new AtomicBoolean(true));
+					edits.push(new InsertStringEdit(edit.offset, edit.string));
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			}
+		}
+	}
+
+	public void insertCharacterAtCursorAndIncrementCursor(char c) {
+		int offset = getOffset(viewer.cursorLine, viewer.cursorColumn);
+		ByteBuffer next = ByteBuffer.allocate(buffer.limit() + 1);
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		WritableByteChannel channel = Channels.newChannel(out);
+		buffer.position(0);
+		try {
+			byte[] before = new byte[offset];
+			buffer.get(before);
+			channel.write(ByteBuffer.wrap(before));
+			channel.write(ByteBuffer.wrap(new byte[]{(byte) c}));
+			byte[] after = new byte[buffer.remaining()];
+			buffer.get(after);
+			channel.write(ByteBuffer.wrap(after));
+			channel.close();
+			viewer.cursorColumn ++;
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		buffer = ByteBuffer.wrap(out.toByteArray());
+		modified.put(currentBuffer, new AtomicBoolean(true));
+		edits.push(new InsertCharacterEdit(offset, c));
+	}
+
+	public void insertStringAtCursorAndIncrementCursor(String str) {
+		int offset = getOffset(viewer.cursorLine, viewer.cursorColumn);
+		ByteBuffer next = ByteBuffer.allocate(buffer.limit() + 1);
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		WritableByteChannel channel = Channels.newChannel(out);
+		buffer.position(0);
+		try {
+			byte[] before = new byte[offset];
+			buffer.get(before);
+			channel.write(ByteBuffer.wrap(before));
+			channel.write(ByteBuffer.wrap(str.getBytes()));
+			byte[] after = new byte[buffer.remaining()];
+			buffer.get(after);
+			channel.write(ByteBuffer.wrap(after));
+			channel.close();
+			viewer.cursorColumn += str.length();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		buffer = ByteBuffer.wrap(out.toByteArray());
+		modified.put(currentBuffer, new AtomicBoolean(true));
+		edits.push(new InsertStringEdit(offset, str));
 	}
 
 	public String getSelection() {
@@ -870,7 +1044,43 @@ public class Editor {
 		buffer = ByteBuffer.wrap(out.toByteArray());
 		buffers.put(currentBuffer, buffer);
 		modified.put(currentBuffer, new AtomicBoolean(true));
-		return new String(outs);
+		String output = new String(outs);
+		edits.push(new DeleteStringEdit(start, output));
+		return output;
 	}
 
+	public void deleteCharacterBeforeCursor() {
+		byte ch = 0;
+		int offset = getOffset(viewer.cursorLine, viewer.cursorColumn);
+		if (offset > 0) {
+			ByteBuffer next = ByteBuffer.allocate(buffer.limit() + 1);
+			ByteArrayOutputStream out = new ByteArrayOutputStream();
+			WritableByteChannel channel = Channels.newChannel(out);
+			buffer.position(0);
+			try {
+				byte[] before = new byte[offset - 1];
+				buffer.get(before);
+				ch = buffer.get();
+				channel.write(ByteBuffer.wrap(before));
+				byte[] after = new byte[buffer.remaining()];
+				buffer.get(after);
+				channel.write(ByteBuffer.wrap(after));
+				channel.close();
+				viewer.cursorColumn --;
+				if (viewer.cursorColumn < 0) {
+					if (viewer.cursorLine > 0) {
+						viewer.cursorLine --;
+						viewer.cursorColumn = getLineLength(viewer.cursorLine) - 1;
+					} else {
+						viewer.cursorColumn = 0;
+					}
+				}
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+			buffer = ByteBuffer.wrap(out.toByteArray());
+			modified.put(currentBuffer, new AtomicBoolean(true));
+			edits.push(new DeleteCharacterEdit(offset - 1, (char) ch));
+		}
+	}
 }

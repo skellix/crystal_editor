@@ -7,6 +7,7 @@ import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
 import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.event.ActionEvent;
+import java.awt.geom.Point2D;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -198,31 +199,38 @@ public class DefaultActionMap extends ActionMap {
 					if (main.showSuggestions.get() && ch == '\n') {
 						for (Runnable runnable : main.onSelect) runnable.run();
 					} else {
-						int offset = main.getOffset(main.viewer.cursorLine, main.viewer.cursorColumn);
-						ByteBuffer next = ByteBuffer.allocate(main.buffer.limit() + 1);
-						ByteArrayOutputStream out = new ByteArrayOutputStream();
-						WritableByteChannel channel = Channels.newChannel(out);
-						main.buffer.position(0);
-						try {
-							byte[] before = new byte[offset];
-							main.buffer.get(before);
-							channel.write(ByteBuffer.wrap(before));
-							channel.write(ByteBuffer.wrap(new byte[]{(byte) ch}));
-							byte[] after = new byte[main.buffer.remaining()];
-							main.buffer.get(after);
-							channel.write(ByteBuffer.wrap(after));
-							channel.close();
-							if (ch == '\n') {
-								main.viewer.cursorLine ++;
-								main.viewer.cursorColumn = 0;
-							} else {
-								main.viewer.cursorColumn ++;
-							}
-						} catch (IOException e) {
-							e.printStackTrace();
+						main.insertCharacterAtCursorAndIncrementCursor(ch);
+//						int offset = main.getOffset(main.viewer.cursorLine, main.viewer.cursorColumn);
+//						ByteBuffer next = ByteBuffer.allocate(main.buffer.limit() + 1);
+//						ByteArrayOutputStream out = new ByteArrayOutputStream();
+//						WritableByteChannel channel = Channels.newChannel(out);
+//						main.buffer.position(0);
+//						try {
+//							byte[] before = new byte[offset];
+//							main.buffer.get(before);
+//							channel.write(ByteBuffer.wrap(before));
+//							channel.write(ByteBuffer.wrap(new byte[]{(byte) ch}));
+//							byte[] after = new byte[main.buffer.remaining()];
+//							main.buffer.get(after);
+//							channel.write(ByteBuffer.wrap(after));
+//							channel.close();
+//							if (ch == '\n') {
+//								main.viewer.cursorLine ++;
+//								main.viewer.cursorColumn = 0;
+//							} else {
+//								main.viewer.cursorColumn ++;
+//							}
+//						} catch (IOException e) {
+//							e.printStackTrace();
+//						}
+//						main.buffer = ByteBuffer.wrap(out.toByteArray());
+//						main.modified.put(main.currentBuffer, new AtomicBoolean(true));
+						if (ch == '\n') {
+							main.viewer.cursorLine ++;
+							main.viewer.cursorColumn = 0;
+						} else {
+							main.viewer.cursorColumn ++;
 						}
-						main.buffer = ByteBuffer.wrap(out.toByteArray());
-						main.modified.put(main.currentBuffer, new AtomicBoolean(true));
 					}
 					main.showSuggestions.set(false);
 					main.contentPane.revalidate();
@@ -234,39 +242,10 @@ public class DefaultActionMap extends ActionMap {
 			
 			@Override
 			public void actionPerformed(ActionEvent arg0) {
-				int offset = main.getOffset(main.viewer.cursorLine, main.viewer.cursorColumn);
-				if (offset > 0) {
-					ByteBuffer next = ByteBuffer.allocate(main.buffer.limit() + 1);
-					ByteArrayOutputStream out = new ByteArrayOutputStream();
-					WritableByteChannel channel = Channels.newChannel(out);
-					main.buffer.position(0);
-					try {
-						byte[] before = new byte[offset - 1];
-						main.buffer.get(before);
-						main.buffer.get();
-						channel.write(ByteBuffer.wrap(before));
-						byte[] after = new byte[main.buffer.remaining()];
-						main.buffer.get(after);
-						channel.write(ByteBuffer.wrap(after));
-						channel.close();
-						main.viewer.cursorColumn --;
-						if (main.viewer.cursorColumn < 0) {
-							if (main.viewer.cursorLine > 0) {
-								main.viewer.cursorLine --;
-								main.viewer.cursorColumn = main.getLineLength(main.viewer.cursorLine) - 1;
-							} else {
-								main.viewer.cursorColumn = 0;
-							}
-						}
-					} catch (IOException e) {
-						e.printStackTrace();
-					}
-					main.buffer = ByteBuffer.wrap(out.toByteArray());
-					main.modified.put(main.currentBuffer, new AtomicBoolean(true));
-					main.showSuggestions.set(false);
-					main.contentPane.revalidate();
-					main.contentPane.repaint();
-				}
+				main.deleteCharacterBeforeCursor();
+				main.showSuggestions.set(false);
+				main.contentPane.revalidate();
+				main.contentPane.repaint();
 			}
 		});
 		put("auto-suggest", new AbstractAction() {
@@ -434,6 +413,24 @@ public class DefaultActionMap extends ActionMap {
 				}
 				
 				main.insertStringAtCursorAndIncrementCursor(str);
+				main.contentPane.revalidate();
+				main.contentPane.repaint();
+			}
+		});
+		put("undo", new AbstractAction() {
+			
+			@Override
+			public void actionPerformed(ActionEvent arg0) {
+				main.undo();
+				main.contentPane.revalidate();
+				main.contentPane.repaint();
+			}
+		});
+		put("redo", new AbstractAction() {
+			
+			@Override
+			public void actionPerformed(ActionEvent arg0) {
+				main.redo();
 				main.contentPane.revalidate();
 				main.contentPane.repaint();
 			}
