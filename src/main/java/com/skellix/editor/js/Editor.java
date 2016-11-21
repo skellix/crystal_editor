@@ -791,6 +791,7 @@ public class Editor {
 		return file;
 	}
 	
+	int maxEditDepth = 1024;
 	public LinkedList<Edit> edits = new LinkedList<Edit>();
 	public LinkedList<Edit> undoneEdits = new LinkedList<Edit>();
 	
@@ -873,6 +874,9 @@ public class Editor {
 				}
 			}
 		}
+		if (undoneEdits.size() > maxEditDepth) {
+			undoneEdits.poll();
+		}
 	}
 	
 	public void redo() {
@@ -954,6 +958,9 @@ public class Editor {
 				}
 			}
 		}
+		if (edits.size() > maxEditDepth) {
+			edits.poll();
+		}
 	}
 
 	public void insertCharacterAtCursorAndIncrementCursor(char c) {
@@ -977,7 +984,31 @@ public class Editor {
 		}
 		buffer = ByteBuffer.wrap(out.toByteArray());
 		modified.put(currentBuffer, new AtomicBoolean(true));
-		edits.push(new InsertCharacterEdit(offset, c));
+		if (!edits.isEmpty()) {
+			Edit last = edits.peek();
+			if (last instanceof InsertCharacterEdit) {
+				InsertCharacterEdit lastEdit = (InsertCharacterEdit) last;
+				if (lastEdit.offset == offset - 1) {
+					edits.pop();
+					edits.push(new InsertStringEdit(lastEdit.offset, new StringBuilder().append(lastEdit.character).append(c).toString()));
+				} else {
+					edits.push(new InsertCharacterEdit(offset, c));
+				}
+			} else if (last instanceof InsertStringEdit) {
+				InsertStringEdit lastEdit = (InsertStringEdit) last;
+				if (lastEdit.offset + lastEdit.string.length() == offset) {
+					edits.pop();
+					edits.push(new InsertStringEdit(lastEdit.offset, new StringBuilder().append(lastEdit.string).append(c).toString()));
+				} else {
+					edits.push(new InsertCharacterEdit(offset, c));
+				}
+			}
+		} else {
+			edits.push(new InsertCharacterEdit(offset, c));
+		}
+		if (edits.size() > maxEditDepth) {
+			edits.poll();
+		}
 	}
 
 	public void insertStringAtCursorAndIncrementCursor(String str) {
@@ -1002,6 +1033,9 @@ public class Editor {
 		buffer = ByteBuffer.wrap(out.toByteArray());
 		modified.put(currentBuffer, new AtomicBoolean(true));
 		edits.push(new InsertStringEdit(offset, str));
+		if (edits.size() > maxEditDepth) {
+			edits.poll();
+		}
 	}
 
 	public String getSelection() {
@@ -1046,6 +1080,9 @@ public class Editor {
 		modified.put(currentBuffer, new AtomicBoolean(true));
 		String output = new String(outs);
 		edits.push(new DeleteStringEdit(start, output));
+		if (edits.size() > maxEditDepth) {
+			edits.poll();
+		}
 		return output;
 	}
 
@@ -1081,6 +1118,9 @@ public class Editor {
 			buffer = ByteBuffer.wrap(out.toByteArray());
 			modified.put(currentBuffer, new AtomicBoolean(true));
 			edits.push(new DeleteCharacterEdit(offset - 1, (char) ch));
+			if (edits.size() > maxEditDepth) {
+				edits.poll();
+			}
 		}
 	}
 }
